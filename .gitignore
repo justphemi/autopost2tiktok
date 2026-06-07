@@ -37,4 +37,4 @@ celerybeat-schedule
 # Distribution
 dist/
 build/
-*.egg-info/
+*.egg-info/youtube_cookies.txt
