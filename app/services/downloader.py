@@ -13,21 +13,17 @@ def download_video(url: str, job_id: str) -> str:
 
     ydl_opts = {
         "outtmpl": output_path,
+        # 18 = confirmed working 360p combined mp4 for YouTube Shorts
+        # Only attempt merged formats if ffmpeg is actually available
         "format": (
             "bestvideo[ext=mp4]+bestaudio[ext=m4a]/18/best[ext=mp4]/best"
             if ffmpeg_path else
             "18/best[ext=mp4]/best"
         ),
         "merge_output_format": "mp4",
-        "quiet": False,
+        "quiet": False,  # turn on temporarily so you can see what's happening
         "no_warnings": False,
-        "cookiesfrombrowser": ("chrome",),  # uses your Chrome YouTube login for restricted videos
         **({"ffmpeg_location": ffmpeg_path} if ffmpeg_path else {}),
-        "extractor_args": {
-            "youtube": {
-                "player_client": ["android", "web"],
-            }
-        },
     }
 
     print(f">>> ffmpeg found at: {ffmpeg_path}")
