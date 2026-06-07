@@ -12,29 +12,28 @@ _LOCAL_COOKIES = os.path.abspath(
 )
 
 def get_cookies_path() -> str | None:
-    """
-    Returns a path to a valid YouTube cookies file.
-    - On Render: writes YOUTUBE_COOKIES_CONTENT env var to a temp file
-    - Locally: uses youtube_cookies.txt in the repo root if it exists
-    - Returns None if no cookies available (will still try without them)
-    """
-    # Production: cookies stored as env var on Render
     content = os.getenv("YOUTUBE_COOKIES_CONTENT")
     if content and content.strip():
+        try:
+            import base64
+            # Try base64 decode first (Render-safe encoding)
+            decoded = base64.b64decode(content).decode("utf-8")
+        except Exception:
+            # Fall back to raw content if not base64
+            decoded = content
+
         tmp = tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False)
-        tmp.write(content)
+        tmp.write(decoded)
         tmp.close()
-        print(f">>> using cookies from env var, written to {tmp.name}")
+        print(f">>> cookies written to {tmp.name}, size: {os.path.getsize(tmp.name)} bytes")
         return tmp.name
 
-    # Local dev: cookies file in repo root
     if os.path.exists(_LOCAL_COOKIES):
         print(f">>> using local cookies file at {_LOCAL_COOKIES}")
         return _LOCAL_COOKIES
 
-    print(">>> no cookies found — attempting download without authentication")
+    print(">>> no cookies found")
     return None
-
 
 def download_video(url: str, job_id: str) -> str:
     output_path = os.path.join(DOWNLOAD_DIR, f"{job_id}_raw.mp4")
