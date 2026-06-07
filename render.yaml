@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: boltreels-api
+    runtime: python
+    buildCommand: pip install -r requirements.txt && apt-get install -y ffmpeg
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+
+  - type: worker
+    name: boltreels-worker
+    runtime: python
+    buildCommand: pip install -r requirements.txt && apt-get install -y ffmpeg
+    startCommand: celery -A app.worker.celery_app worker --loglevel=info --concurrency=2

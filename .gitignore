@@ -1,0 +1,40 @@
+# Environment
+.env
+.env.*
+
+# Virtual environment
+venv/
+.venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# Temp/download dirs
+/tmp/
+*.mp4
+*.m4a
+*.webm
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+celerybeat-schedule
+
+# Distribution
+dist/
+build/
+*.egg-info/
