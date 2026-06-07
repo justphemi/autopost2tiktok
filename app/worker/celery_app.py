@@ -16,4 +16,5 @@ celery_app.conf.update(
     timezone="UTC",
     task_acks_late=True,           # Don't ack until task is done (safe re-queue on crash)
     worker_prefetch_multiplier=1,  # Process one job at a time per worker
+    broker_connection_retry_on_startup=True, 
 )
