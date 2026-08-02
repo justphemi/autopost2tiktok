@@ -76,6 +76,7 @@ async def tiktok_callback(code: str, state: str, request: Request):
         import traceback
         traceback.print_exc()  # 👈 full stack trace
         return RedirectResponse(f"{settings.FRONTEND_URL}/settings?error=tiktok_callback_error")
+
 @router.get("/accounts")
 def get_tiktok_accounts(user=Depends(verify_token)):
     try:
@@ -83,3 +84,29 @@ def get_tiktok_accounts(user=Depends(verify_token)):
         return {"accounts": res.data}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch TikTok accounts: {str(e)}")
+
+@router.post("/refresh")
+async def refresh_tiktok_token(user=Depends(verify_token)):
+    try:
+        accounts = supabase.table("tiktok_accounts").select("*").execute()
+        for account in accounts.data:
+            async with httpx.AsyncClient() as client:
+                res = await client.post(
+                    "https://open.tiktokapis.com/v2/oauth/token/",
+                    data={
+                        "client_key": settings.TIKTOK_CLIENT_KEY,
+                        "client_secret": settings.TIKTOK_CLIENT_SECRET,
+                        "grant_type": "refresh_token",
+                        "refresh_token": account["refresh_token"],
+                    },
+                    headers={"Content-Type": "application/x-www-form-urlencoded"}
+                )
+                token_data = res.json()
+                if "access_token" in token_data:
+                    supabase.table("tiktok_accounts").update({
+                        "access_token": token_data["access_token"],
+                        "refresh_token": token_data.get("refresh_token", account["refresh_token"]),
+                    }).eq("tiktok_open_id", account["tiktok_open_id"]).execute()
+        return {"message": "Tokens refreshed successfully."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Token refresh failed: {str(e)}")

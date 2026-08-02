@@ -2,14 +2,40 @@ services:
   - type: web
     name: boltreels-api
     runtime: python
-    buildCommand: pip install -r requirements.txt && apt-get install -y ffmpeg
+    plan: starter
+    buildCommand: pip install -r requirements.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.0
+      # Set the following in the Render dashboard (not in this file):
+      # SUPABASE_URL
+      # SUPABASE_SERVICE_KEY
+      # JWT_SECRET
+      # TIKTOK_CLIENT_KEY
+      # TIKTOK_CLIENT_SECRET
+      # TIKTOK_REDIRECT_URI
+      # YOUTUBE_CLIENT_ID
+      # YOUTUBE_CLIENT_SECRET
+      # YOUTUBE_REDIRECT_URI
+      # GROQ_API_KEY
+      # FRONTEND_URL  (set to https://boltreels-web.onrender.com after the static site is up)
 
-  - type: worker
-    name: boltreels-worker
-    runtime: python
-    buildCommand: pip install -r requirements.txt && apt-get install -y ffmpeg
-    startCommand: celery -A app.worker.celery_app worker --loglevel=info --concurrency=2
+  - type: web
+    name: boltreels-web
+    runtime: static
+    buildCommand: cd boltreels-frontend && npm install && npm run build
+    publishPath: boltreels-frontend/dist
+    # SPA fallback: send every path to index.html so client-side routes
+    # like /youtube?connected=1 work after a hard reload.
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: VITE_API_URL
+        # Vite bakes this into the bundle at build time. If the backend URL
+        # changes, redeploy this service to re-bake.
+        value: https://boltreels-api.onrender.com

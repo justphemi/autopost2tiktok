@@ -16,7 +16,7 @@ def _get_jwks() -> dict:
     if _jwks_cache:
         return _jwks_cache
     url = f"{settings.SUPABASE_URL}/auth/v1/.well-known/jwks.json"
-    res = httpx.get(url)
+    res = httpx.get(url, timeout=10)
     res.raise_for_status()
     _jwks_cache = res.json()
     return _jwks_cache

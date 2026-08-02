@@ -24,11 +24,9 @@ def post_video(
         "post_info": {
             "title": title[:150],
             "description": full_caption,
-            "privacy_level": "SELF_ONLY",
             "disable_duet": False,
             "disable_comment": False,
             "disable_stitch": False,
-            "video_cover_timestamp_ms": 1000,
         },
         "source_info": {
             "source": "FILE_UPLOAD",
@@ -38,19 +36,11 @@ def post_video(
         }
     }
 
-    if scheduled_time:
-        try:
-            dt = datetime.fromisoformat(scheduled_time.replace("Z", "+00:00"))
-            payload["post_info"]["scheduled_publish_time"] = int(dt.timestamp())
-            payload["post_info"]["auto_add_music"] = False
-        except Exception as e:
-            raise Exception(f"Invalid scheduled time format: {str(e)}")
-
     try:
-        with httpx.Client(timeout=60) as client:
-            # Step 1: Init the upload
+        with httpx.Client(timeout=300) as client:
+            # Step 1: Init the draft upload
             init_res = client.post(
-                "https://open.tiktokapis.com/v2/post/publish/video/init/",
+                "https://open.tiktokapis.com/v2/post/publish/inbox/video/init/",
                 json=payload,
                 headers=headers,
             )
@@ -76,7 +66,7 @@ def post_video(
                     "Content-Range": f"bytes 0-{video_size - 1}/{video_size}",
                     "Content-Length": str(video_size),
                 },
-                timeout=120,
+                timeout=300,
             )
             print(">>> TIKTOK UPLOAD STATUS:", upload_res.status_code, upload_res.text[:200])
 

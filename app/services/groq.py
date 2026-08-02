@@ -1,65 +1,113 @@
-from groq import Groq
-from app.config import settings
-import yt_dlp, json, re
-
-client = Groq(api_key=settings.GROQ_API_KEY)
-
-def get_video_info(url: str) -> dict:
-    ydl_opts = {"quiet": True, "no_warnings": True, "skip_download": True}
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-            return {
-                "title": info.get("title", ""),
-                "description": info.get("description", ""),
-                "uploader": info.get("uploader", ""),
-                "tags": info.get("tags", []),
-            }
-    except Exception as e:
-        raise Exception(f"Could not fetch video metadata from {url}: {str(e)}")
-
-def generate_metadata(url: str) -> dict:
-    video_info = get_video_info(url)
-
-    prompt = f"""
-You are a viral TikTok content strategist. Based on the original video info below, generate optimized metadata to maximize reach and virality on TikTok.
-
-Original Title: {video_info['title']}
-Original Description: {video_info['description'][:500]}
-Original Tags: {', '.join(video_info['tags'][:10]) if video_info['tags'] else 'none'}
-
-Respond ONLY with a valid JSON object, no markdown, no extra text:
-{{
-  "title": "Short punchy TikTok title under 60 chars with a hook",
-  "tags": ["tag1", "tag2", "tag3", "tag4", "tag5", "tag6", "tag7"],
-  "caption": "TikTok caption with hook opener, value, and CTA. Include 3-5 relevant hashtags inline."
-}}
-
-Rules:
-- Title must start with a hook (number, question, or bold statement)
-- Tags: mix of trending broad tags + niche specific tags, no # symbol
-- Caption: conversational, 150-200 chars, end with a call to action
 """
+Groq metadata generation for YouTube uploads.
+
+Calls llama-3.1-8b-instant (default) with response_format=json_object to
+produce {title, description, tags} for a source video link + short
+description. Falls back to regex extraction if the model wraps JSON in
+code fences, and finally to a raw-text return so the UI can show the
+model output for the user to edit.
+"""
+import json
+import re
+import httpx
+
+from app.config import settings
+
+
+SYSTEM_PROMPT = (
+    "You are a YouTube SEO expert. Given a source video link and a brief "
+    "description, produce JSON with three fields: "
+    '"title" (string, <= 100 characters, attention-grabbing and SEO-friendly), '
+    '"description" (string, <= 5000 characters, opens with a 2-3 sentence hook, '
+    'then 5-8 inline hashtags, then 1-2 sentences of context), and '
+    '"tags" (array of 8-15 short keyword strings). '
+    "Respond with ONLY valid JSON, no prose, no markdown code fences."
+)
+
+
+def _extract_json(text: str):
+    """Best-effort JSON extraction: try direct parse, then strip code fences
+    and grab the first {...} block. Returns the parsed dict, or None."""
+    try:
+        return json.loads(text)
+    except (json.JSONDecodeError, TypeError):
+        pass
+
+    cleaned = text.strip()
+    # Strip leading ```json or ``` fences
+    cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s*```\s*$", "", cleaned)
+    # Find the first balanced {...} block
+    match = re.search(r"\{.*\}", cleaned, re.DOTALL)
+    if match:
+        try:
+            return json.loads(match.group(0))
+        except json.JSONDecodeError:
+            return None
+    return None
+
+
+def generate_metadata(link: str, description: str) -> dict:
+    """
+    Returns one of:
+      {"title": str, "description": str, "tags": list[str]}
+      {"raw": True, "text": str}  # model did not return parseable JSON
+    """
+    if not settings.GROQ_API_KEY:
+        return {"raw": True, "text": "GROQ_API_KEY is not configured on the server."}
+
+    user_prompt = (
+        f"Source link: {link}\n"
+        f"Short description: {description.strip() or '(none provided)'}\n\n"
+        "Generate the YouTube metadata."
+    )
 
     try:
-        response = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",  # ✅ valid Groq model
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.7,
-            max_tokens=400,
-        )
-        raw = response.choices[0].message.content.strip()
+        with httpx.Client(timeout=30) as client:
+            res = client.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {settings.GROQ_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": settings.GROQ_MODEL,
+                    "temperature": 0.4,
+                    "response_format": {"type": "json_object"},
+                    "messages": [
+                        {"role": "system", "content": SYSTEM_PROMPT},
+                        {"role": "user", "content": user_prompt},
+                    ],
+                },
+            )
+    except httpx.TimeoutException:
+        return {"raw": True, "text": "Groq request timed out. Try again in a moment."}
+    except httpx.RequestError as e:
+        return {"raw": True, "text": f"Network error contacting Groq: {e}"}
 
-        # Strip markdown fences if Groq wraps response in ```json ... ```
-        raw = re.sub(r"^```(?:json)?\s*", "", raw)
-        raw = re.sub(r"\s*```$", "", raw)
-        raw = raw.strip()
+    if res.status_code >= 400:
+        return {"raw": True, "text": f"Groq error {res.status_code}: {res.text[:300]}"}
 
-        if not raw:
-            raise Exception("Groq returned an empty response.")
+    try:
+        body = res.json()
+        content = body["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, ValueError) as e:
+        return {"raw": True, "text": f"Malformed Groq response: {e}"}
 
-        return json.loads(raw)
-    except json.JSONDecodeError as e:
-        raise Exception(f"Groq returned invalid JSON: {str(e)}. Raw response: {raw[:200]}")
-    except Exception as e:
-        raise Exception(f"Groq metadata generation failed: {str(e)}")
+    parsed = _extract_json(content)
+    if parsed is None:
+        return {"raw": True, "text": content}
+
+    # Validate / sanitize shape. We accept whatever the model gave us and
+    # truncate to platform limits as a safety net.
+    title = str(parsed.get("title", "")).strip()[:100]
+    desc_text = str(parsed.get("description", "")).strip()[:5000]
+    raw_tags = parsed.get("tags", [])
+    if not isinstance(raw_tags, list):
+        raw_tags = []
+    tags = [str(t).strip() for t in raw_tags if str(t).strip()][:15]
+
+    if not title or not desc_text:
+        return {"raw": True, "text": content}
+
+    return {"title": title, "description": desc_text, "tags": tags}
